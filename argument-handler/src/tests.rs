@@ -16,8 +16,8 @@ mod tests {
         // struct_field_name: type = default_value; ["cli_name", cli_position] "Description of the argument."
     
         // --- Examples ---
-        input_file: PathBuf; ["input_file"]
-        output_file: Optional<PathBuf>; ["-o", "--output"] "Saves to this file. Defaults to `out.txt` in the input file's parent directory."
+        input_file: PathBuf; ["input_file"; 0]
+        output_file: Optional<PathBuf>; ["-o", "--output"; 1] "Saves to this file. Defaults to `out.txt` in the input file's parent directory."
         verbose: bool; ["-V", "--verbose"] "Enables verbose logging."
         help: bool; ["-h", "--help"] "Shows this help message."
         template: Optional<String>; ["-t", "--template"] "The template to use."
@@ -49,5 +49,7 @@ mod tests {
         let config = Config::parse_custom(args);
         println!("{:#?}", config);
         println!("{:#?}", config.unwrap().input_file);
+
+        // vec![1, 2].sort_by_key(|k| k);
     }
 }

@@ -10,6 +10,7 @@ mod tests;
 use std::error::Error;
 use std::str::FromStr;
 use std::any::Any;
+use std::collections::HashMap;
 
 pub enum SplitAt {
     Any,
@@ -78,12 +79,14 @@ impl<T> FromStr for Optional<T> where T: FromStr {
     }
 }
 
-struct FieldInfo {
+#[derive(Debug)]
+struct FieldInfo<T> where T: Default {
     pub names: Vec<String>,
     pub description: String,
     pub optional: bool,
     pub joined_name: String,
-    pub sort_order: usize
+    pub position: Option<usize>,
+    pub fallback: Option<T>,
 }
 
 #[macro_export]
@@ -94,7 +97,7 @@ macro_rules! config_setup {
 
         // TODO: Don't allow `-` or `--` prefix when position is specified
         // TODO: Don't allow multiple argument names when position is specified
-        $($name:ident: $cast:ty $(= $default:expr)?; $(@$optional:ty)? [$($cli_name:literal),+] $([$cli_position:literal])? $($description:literal)?)+
+        $($name:ident: $cast:ty $(= $default:expr)?; [$($cli_name:literal),+ $(; $cli_position:literal)?] $($description:literal)?)+
     ) => {
         $(#[$attr])*
         $public_flag struct $struct_name {
@@ -104,13 +107,13 @@ macro_rules! config_setup {
         }
 
         impl $struct_name {
-            fn field_info() -> Vec<FieldInfo> {
+            fn field_info<T>() -> Vec<FieldInfo<T>> where T: Default {
                 let mut field_names: Vec<Vec<String>> = Vec::new();
                 let mut field_descriptions: Vec<String> = Vec::new();
                 let mut field_optional_names: Vec<String> = Vec::new();
-                let mut field_jn_sort_order: Vec<String> = Vec::new();
+                let mut field_position: HashMap<String, usize> = HashMap::new();
 
-                $(
+                { $(
                     let desc = "";
                     $(
                         let desc = $description;
@@ -123,21 +126,27 @@ macro_rules! config_setup {
                     )*
                     let joined_name = names.join(", ");
 
-                    // Add optional keys to the list of optional keys
+                    let mut position: Option<usize> = None;
                     $(
-                        stringify!($optional);
-                        cli_optional.push(joined_name.clone());
+                        position = Some($cli_position);
                     )*
+
+                    if let Some(pos) = position {
+                        field_position.insert(joined_name.clone(), pos);
+                    }
+
+                    // Add optional keys to the list of optional keys
+                    // TODO: Use a more consistent way of checking if a type is optional
                     if stringify!($cast) == "bool" {
                         field_optional_names.extend(names.clone());
+                    } else if stringify!($cast).starts_with("Optional") {
+                        field_optional_names.push(names[0].clone());
                     }
 
                     field_names.push(names);
-                    
-                    field_jn_sort_order.push(joined_name);
-                )*
+                )* }
 
-                let mut field_info: Vec<FieldInfo> = Vec::new();
+                let mut field_info_array: Vec<FieldInfo<T>> = Vec::new();
 
                 loop {
                     let names: Option<Vec<String>> = field_names.pop();
@@ -157,20 +166,29 @@ macro_rules! config_setup {
                     }
                     
                     let joined_name = names.join(", ");
-                    let sort_order = field_jn_sort_order.binary_search_by(|x| x.cmp(&joined_name));
-                    let sort_order = sort_order.unwrap_or(field_jn_sort_order.len());
+                    let position = field_position.get(&joined_name);
 
-                    field_info.push(FieldInfo {
-                        joined_name,
-                        names,
-                        description: desc,
-                        optional,
-                        sort_order
-                    });
+                    $(
+                        let field_info = FieldInfo::<$cast> {
+                            joined_name,
+                            names,
+                            description: desc,
+                            optional,
+                            position: position.cloned()
+                        };
+                        println!("{:?}", field_info);
+                        field_info_array.push(field_info);
+                    )*
                 }
 
-                field_info.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
-                field_info
+                field_info_array.sort_by_key(|k| {
+                    if let Some(pos) = k.position {
+                        pos
+                    } else {
+                        usize::MAX
+                    }
+                });
+                field_info_array
             }
 
             pub fn show_help(options: Option<HelpOptions>) {    
@@ -269,24 +287,24 @@ macro_rules! config_setup {
 
                             // Set default value
                             $(
-                                match stringify!($default) {
-                                    "None" => {
-                                        // bool should default to false since it's set to true if the argument is present
-                                        value = Box::new(<$cast>::default());
-                                    },
-                                    _ => {
-                                        value = Box::new($default);
-                                    }
+                            match stringify!($default) {
+                                "None" => {
+                                    // bool should default to false since it's set to true if the argument is present
+                                    value = Box::new(<$cast>::default());
+                                },
+                                _ => {
+                                    value = Box::new($default);
                                 }
+                            }
                             )*
 
                             let args = args.clone();
                             
                             // Check positional arguments
                             $(
-                                if let Some(arg) = args.get($cli_position) {
-                                    value = Box::new(Self::cast_value::<$cast>(arg)?);
-                                }
+                            if let Some(arg) = args.get($cli_position) {
+                                value = Box::new(Self::cast_value::<$cast>(arg)?);
+                            }
                             )?
 
                             // Check keyword arguments
@@ -296,13 +314,13 @@ macro_rules! config_setup {
                                 }
 
                                 $(
-                                    if arg == $cli_name {
-                                        value = Box::new(true);
-                                    } else if let Some((arg_key, arg_value)) = arg.split_once("=") {
-                                        if arg_key == $cli_name {
-                                            value = Box::new(Self::cast_value::<$cast>(arg_value)?);
-                                        }
+                                if arg == $cli_name {
+                                    value = Box::new(true);
+                                } else if let Some((arg_key, arg_value)) = arg.split_once("=") {
+                                    if arg_key == $cli_name {
+                                        value = Box::new(Self::cast_value::<$cast>(arg_value)?);
                                     }
+                                }
                                 )?
                             }
 
