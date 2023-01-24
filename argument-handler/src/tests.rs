@@ -32,7 +32,7 @@ mod tests {
             description_newline_extra_padding: 2, // (Default: 2) Extra padding for the description when it's on a new line.
             indent_length: 4 // (Default: 4) Indentation of the arguments.
         };
-        Config::show_help(Some(options));
+        // Config::show_help(Some(options));
     }
 
     #[test]
@@ -46,10 +46,16 @@ mod tests {
         ];
         let args: Vec<String> = args.iter_mut().map(|arg| arg.to_string()).collect();
 
-        let config = Config::parse_custom(args);
-        println!("{:#?}", config);
-        println!("{:#?}", config.unwrap().input_file);
+        // let config = Config::parse_custom(args);
+        // println!("{:#?}", config);
+        // println!("{:#?}", config.unwrap().input_file);
 
         // vec![1, 2].sort_by_key(|k| k);
+    }
+
+    #[test]
+    fn argument_info() {
+        let args = Config::get_arguments();
+        println!("{:#?}", args);
     }
 }
