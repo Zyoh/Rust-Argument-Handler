@@ -290,6 +290,9 @@ macro_rules! config_setup {
                 let result = Self {
                     $(
                     $name: {
+                        // Unwrap here should be safe
+                        let setup_arg = setup_arguments.get(stringify!($name)).unwrap();
+                        
                         #[allow(unused_assignments)]
                         let mut value = ArgumentType::None;
 
@@ -299,9 +302,15 @@ macro_rules! config_setup {
                         $(
                         if let Some(arg) = cliargs.get($cli_position) {
                             if arg.starts_with("-") {
-                                return Err(format!("Missing required argument").into());
+                                if !setup_arg.optional {
+                                    return Err(format!("Expected required positional argument `{}`, found keyword argument `{}`.", 
+                                        stringify!($name),
+                                        arg
+                                    ).into());   
+                                }
+                            } else {
+                                value = ArgumentType::$name(Self::cast_value::<$cast>(arg)?);
                             }
-                            value = ArgumentType::$name(Self::cast_value::<$cast>(arg)?);
                         }
                         )?
 
@@ -323,13 +332,21 @@ macro_rules! config_setup {
                             )?
                         }
 
-                        let default: ArgumentType = setup_arguments.get(stringify!($name)).unwrap().value.clone();
+                        // Default from setup
+                        let mut default: ArgumentType = setup_arg.value.clone();
+                        
+                        // If setup doesn't provide a default, use the default value for the type
+                        if let ArgumentType::None = default {
+                            if setup_arg.optional{
+                                default = ArgumentType::$name(<$cast>::default());
+                            }
+                        }
 
                         let value: $cast = match value {
                             ArgumentType::$name(v) => v,
                             _ => match &default {
                                 ArgumentType::$name(v) => v.clone(),
-                                _ => return Err(format!("Missing required argument").into())
+                                _ => return Err(format!("Missing required argument `{}`", stringify!($name)).into())
                             }
                         };
 

@@ -48,7 +48,7 @@ mod tests {
         let mut args = vec![
             "appname.exec",
             "/dev/null/input_file", // This is a required positional argument.
-            "/dev/null/output_file", // This is an optional positional argument.
+            // "/dev/null/output_file", // This is an optional positional argument.
             "-V", // This is a flag.
             "-h", // This is a flag.
             // "--template", "template_string" // This is an optional argument.
