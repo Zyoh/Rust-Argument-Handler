@@ -17,10 +17,18 @@ mod tests {
     
         // --- Examples ---
         input_file: PathBuf; ["input_file"; 0]
-        output_file: Optional<PathBuf>; ["-o", "--output"; 1] "Saves to this file. Defaults to `out.txt` in the input file's parent directory."
+        output_file: Optional<PathBuf>; ["output"; 1] "Saves to this file. Defaults to `out.txt` in the input file's parent directory."
         verbose: bool; ["-V", "--verbose"] "Enables verbose logging."
         help: bool; ["-h", "--help"] "Shows this help message."
-        template: Optional<String>; ["-t", "--template"] "The template to use."
+        template: Optional<String> = "default_template_string" ; ["-t", "--template"] "The template to use."
+    }
+
+    #[test]
+    fn argument_info() {
+        // This should always work given correct configuration.
+        // TODO: Check if incorrect configuration unnoticed in compile-time is possible.
+        let args = Config::get_arguments().unwrap();
+        println!("{:#?}", args);
     }
 
     #[test]
@@ -32,30 +40,22 @@ mod tests {
             description_newline_extra_padding: 2, // (Default: 2) Extra padding for the description when it's on a new line.
             indent_length: 4 // (Default: 4) Indentation of the arguments.
         };
-        // Config::show_help(Some(options));
+        Config::show_help(Some(options)).unwrap();
     }
 
     #[test]
-    fn values() {
+    fn parsing() {
         let mut args = vec![
-            "application.exec",
-            "/dev/null/input_file",
-            // "-o", "/dev/null/output_file",
-            "-V",
-            "-h"
+            "appname.exec",
+            "/dev/null/input_file", // This is a required positional argument.
+            "/dev/null/output_file", // This is an optional positional argument.
+            "-V", // This is a flag.
+            "-h", // This is a flag.
+            // "--template", "template_string" // This is an optional argument.
         ];
         let args: Vec<String> = args.iter_mut().map(|arg| arg.to_string()).collect();
 
-        // let config = Config::parse_custom(args);
-        // println!("{:#?}", config);
-        // println!("{:#?}", config.unwrap().input_file);
-
-        // vec![1, 2].sort_by_key(|k| k);
-    }
-
-    #[test]
-    fn argument_info() {
-        let args = Config::get_arguments();
-        println!("{:#?}", args);
+        let config = Config::parse_custom(args);
+        println!("{:#?}", config);
     }
 }

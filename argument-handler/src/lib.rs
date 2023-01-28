@@ -49,19 +49,19 @@ impl Default for HelpOptions {
     }
 }
 
-pub enum Value {
+pub enum CLIValue {
     String(String),
     Bool(bool),
     None
 }
 
-#[derive(Debug)]
-pub enum Optional<T> where T: FromStr {
+#[derive(Debug, Copy, Clone)]
+pub enum Optional<T> where T: FromStr + Default {
     Some(T),
     None
 }
 
-impl<T> FromStr for Optional<T> where T: FromStr {
+impl<T> FromStr for Optional<T> where T: FromStr + Default {
     type Err = Box<dyn Error>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -79,15 +79,25 @@ impl<T> FromStr for Optional<T> where T: FromStr {
     }
 }
 
+impl<T> Default for Optional<T> where T: FromStr + Default {
+    fn default() -> Self {
+        let object: Optional<T> = Optional::Some(T::default());
+
+        object
+    }
+}
+
 #[derive(Debug)]
-struct Argument {
+struct Argument<T> {
+    pub field_name: String,
     pub keys: Vec<String>,
     pub description: String,
     pub optional: bool,
     pub position: Option<usize>,
+    pub value: T
 }
 
-impl Argument {
+impl<T> Argument<T> {
     pub fn matches_key(&self, key: &str) -> bool {
         self.keys.iter().any(|k| k == key)
     }
@@ -118,188 +128,223 @@ macro_rules! config_setup {
             )*
         }
 
+        #[derive(Debug, Clone)]
+        pub enum ArgumentType {
+            $(
+                #[allow(non_camel_case_types)]
+                $name($cast),
+            )*
+
+            None
+        }
+
         impl $struct_name {
-            pub(crate) fn get_arguments() -> Vec<Argument> {
-                let mut result: Vec<Argument> = Vec::new();
-                $(
-                
+            pub(crate) fn get_arguments() -> Result<
+                                                HashMap<String, Argument<ArgumentType>>, 
+                                                Box<dyn Error>
+                                            > {
+                let mut result: HashMap<String, Argument<ArgumentType>> = HashMap::new();
+
+                $(                
                     let mut cli_names: Vec<String> = Vec::new();
                     $( cli_names.push($cli_name.to_string()); )*
 
+                    #[allow(unused_mut)]
                     let mut description = String::new();
                     $( description.push_str($description); )*
 
-                    let mut position: Option<usize> = None;
-                    $( position = Some($cli_position); )*
+                    let position: Option<usize> = None;
+                    $( let position = Some($cli_position); )*
 
-                    let mut optional = false;
+                    let optional = stringify!($cast).starts_with("Optional");
 
-                    let a = Argument {
+                    let field_name = stringify!($name).to_string();
+
+                    // Default value
+                    let default: Option<String> = None;
+                    $( let default = Some($default.to_string()); )*
+
+                    let actual_default = match default {
+                        Some(default) => ArgumentType::$name(<$cast>::from_str(&default)?),
+                        None => ArgumentType::None
+                    };
+
+                    let argument = Argument::<ArgumentType> {
+                        field_name,
                         keys: cli_names,
                         description: description.to_string(),
                         optional,
-                        position
+                        position,
+                        value: actual_default
                     };
 
-                    result.push(a);
+                    result.insert(argument.field_name.clone(), argument);
                 )*
-             
-                result
+
+                return Ok(result);
             }
 
-            // pub fn show_help(options: Option<HelpOptions>) {    
-            //     let options = options.unwrap_or(HelpOptions::default());
+            pub fn show_help(options: Option<HelpOptions>) -> Result<(), Box<dyn Error>> {    
+                let options = options.unwrap_or(HelpOptions::default());
 
-            //     let field_info_array = Self::field_info();
-            //     let longest_name = field_info_array.iter().map(|s| s.joined_name.len()).max().unwrap_or(0);
+                let arguments = Self::get_arguments()?;
+                let longest_name: usize = arguments.values().into_iter().map(
+                    |s| {
+                        s.pretty_name().len()
+                    }).max().unwrap_or(0);
     
-            //     print!("Usage: {}", $executable_name);
+                print!("Usage: {}", $executable_name);
                 
-            //     // TODO: Add argument values to usage
-            //     for field_info in &field_info_array {
-            //         if field_info.optional {
-            //             print!(" [{}]", field_info.joined_name);
-            //         } else {
-            //             print!(" <{}>", field_info.joined_name);
-            //         }
-            //     }
+                // TODO: Add argument values to usage
+                for argument in arguments.values().into_iter() {
+                    if argument.optional {
+                        print!(" [{}]", argument.pretty_name());
+                    } else {
+                        print!(" <{}>", argument.pretty_name());
+                    }
+                }
 
-            //     print!("\n");
+                print!("\n");
 
-            //     let description_offset_no_name = options.indent_length + longest_name + options.description_offset;
+                let description_offset_no_name = options.indent_length + longest_name + options.description_offset;
 
-            //     for field_info in &field_info_array {
-            //         print!("{}{:<width$}", 
-            //             String::from(" ").repeat(options.indent_length), 
-            //             field_info.joined_name, 
-            //             width = (longest_name + options.description_offset
-            //             ));
+                // Sort arguments by position
+                let mut arguments_vector: Vec<(&String, &Argument<ArgumentType>)> = arguments.iter().collect();
+                arguments_vector.sort_by(|(_, v), (_, v2)| {
+                    let pos = v.position.unwrap_or(usize::MAX);
+                    let pos2 = v2.position.unwrap_or(usize::MAX);
+                    pos.cmp(&pos2)
+                });
+                for (field_name, argument) in arguments_vector {
+                    print!("{}{:<width$}", 
+                        String::from(" ").repeat(options.indent_length), 
+                        argument.pretty_name(), 
+                        width = (longest_name + options.description_offset
+                        ));
     
-            //         // Split the description into multiple lines if it's too long
-            //         let mut desc_split: Vec<String> = Vec::new();
+                    // Split the description into multiple lines if it's too long
+                    let mut desc_split: Vec<String> = Vec::new();
     
-            //         let mut too_long = false;
-            //         for (i, ch) in field_info.description.chars().enumerate() {
-            //             if i % options.description_max_length == 0 {
-            //                 too_long = true;
-            //             }
-            //             if (too_long
-            //                 && options.split_at.matches(ch))
-            //                 || i == 0 {
-            //                 desc_split.push(String::new());
-            //                 too_long = false;
-            //             }
-            //             desc_split.last_mut().unwrap().push(ch);
-            //         }
+                    let mut too_long = false;
+                    for (i, ch) in argument.description.chars().enumerate() {
+                        if i % options.description_max_length == 0 {
+                            too_long = true;
+                        }
+                        if (too_long
+                            && options.split_at.matches(ch))
+                            || i == 0 {
+                            desc_split.push(String::new());
+                            too_long = false;
+                        }
+                        desc_split.last_mut().unwrap().push(ch);
+                    }
     
-            //         // Print description parts
-            //         let mut desc_split_iter = desc_split.iter();
-            //         if let Some(d1) = desc_split_iter.nth(0) {
-            //             print!("{}\n", d1);
-            //         } else {
-            //             print!("\n");
-            //         }
-            //         for d in desc_split_iter.into_iter() {
-            //             let padding = String::from(" ").repeat((description_offset_no_name - 1) + options.description_newline_extra_padding);
-            //             print!("{}{}\n", padding, d);
-            //         }
-            //     }
-            // }
+                    // Print description parts
+                    let mut desc_split_iter = desc_split.iter();
+                    if let Some(d1) = desc_split_iter.nth(0) {
+                        print!("{}\n", d1);
+                    } else {
+                        print!("\n");
+                    }
+                    for d in desc_split_iter.into_iter() {
+                        let padding = String::from(" ").repeat((description_offset_no_name - 1) + options.description_newline_extra_padding);
+                        print!("{}{}\n", padding, d);
+                    }
+                }
+
+                Ok(())
+            }
             
-            // fn cast_value<T: FromStr>(value: &str) -> Result<T, Box<dyn Error>> {
-            //     match value.parse::<T>() {
-            //         Ok(value) => Ok(value),
-            //         Err(_) => Err(format!("Invalid value for argument: {}", value).into())
-            //     }
-            // }
+            fn cast_value<T: FromStr>(value: &str) -> Result<T, Box<dyn Error>> {
+                match value.parse::<T>() {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(format!("Invalid value for argument: {}", value).into())
+                }
+            }
 
-            // pub fn get(key: &str) -> Value {
-            //     let args: Vec<String> = std::env::args().collect();
-            //     let mut args = args.into_iter();
+            pub fn get(key: &str) -> CLIValue {
+                let args: Vec<String> = std::env::args().collect();
+                let mut args = args.into_iter();
                 
-            //     // Skip executable name
-            //     args.next();
+                // Skip executable name
+                args.next();
 
-            //     for arg in args {
-            //         if arg == key {
-            //             return Value::Bool(true);
-            //         } else if let Some((arg_key, arg_value)) = arg.split_once("=") {
-            //             if arg_key == key {
-            //                 return Value::String(arg_value.to_string());
-            //             }
-            //         }
-            //     }
+                for arg in args {
+                    if arg == key {
+                        return CLIValue::Bool(true);
+                    } else if let Some((arg_key, arg_value)) = arg.split_once("=") {
+                        if arg_key == key {
+                            return CLIValue::String(arg_value.to_string());
+                        }
+                    }
+                }
 
-            //     Value::None
-            // }
+                CLIValue::None
+            }
 
-            // pub fn parse_custom(args: Vec<String>) -> Result<Self, Box<dyn Error>> {
-            //     let args: Vec<String> = args.into_iter().skip(1).collect();
+            pub fn parse_custom(args: Vec<String>) -> Result<Self, Box<dyn Error>> {
+                let cliargs: Vec<String> = args.into_iter().skip(1).collect();
 
-            //     let result = Self {
-            //         $(
-            //             $name: {
-            //                 let mut value: Box<dyn Any> = Box::new(None::<$cast>);
+                let setup_arguments = Self::get_arguments()?;
 
-            //                 // Set default value
-            //                 $(
-            //                 match stringify!($default) {
-            //                     "None" => {
-            //                         // bool should default to false since it's set to true if the argument is present
-            //                         value = Box::new(<$cast>::default());
-            //                     },
-            //                     _ => {
-            //                         value = Box::new($default);
-            //                     }
-            //                 }
-            //                 )*
+                let result = Self {
+                    $(
+                    $name: {
+                        #[allow(unused_assignments)]
+                        let mut value = ArgumentType::None;
 
-            //                 let args = args.clone();
-                            
-            //                 // Check positional arguments
-            //                 $(
-            //                 if let Some(arg) = args.get($cli_position) {
-            //                     value = Box::new(Self::cast_value::<$cast>(arg)?);
-            //                 }
-            //                 )?
+                        let cliargs = cliargs.clone();
+                        
+                        // Check positional arguments
+                        $(
+                        if let Some(arg) = cliargs.get($cli_position) {
+                            if arg.starts_with("-") {
+                                return Err(format!("Missing required argument").into());
+                            }
+                            value = ArgumentType::$name(Self::cast_value::<$cast>(arg)?);
+                        }
+                        )?
 
-            //                 // Check keyword arguments
-            //                 for arg in args.iter() {
-            //                     if !arg.starts_with("-") {
-            //                         continue;
-            //                     }
+                        // Check keyword arguments
+                        for carg in cliargs.iter() {
+                            if !carg.starts_with("-") {
+                                continue;
+                            }
 
-            //                     $(
-            //                     if arg == $cli_name {
-            //                         value = Box::new(true);
-            //                     } else if let Some((arg_key, arg_value)) = arg.split_once("=") {
-            //                         if arg_key == $cli_name {
-            //                             value = Box::new(Self::cast_value::<$cast>(arg_value)?);
-            //                         }
-            //                     }
-            //                     )?
-            //                 }
+                            $(
+                            if carg == $cli_name {
+                                // Cast value to bool
+                                value = ArgumentType::$name(Self::cast_value::<$cast>("true")?);
+                            } else if let Some((arg_key, arg_value)) = carg.split_once("=") {
+                                if arg_key == $cli_name {
+                                    value = ArgumentType::$name(Self::cast_value::<$cast>(arg_value)?);
+                                }
+                            }
+                            )?
+                        }
 
-            //                 // if value.is::<Option<$cast>>() {
-            //                 //     return Err(format!("Missing required argument").into());
-            //                 // }
+                        let default: ArgumentType = setup_arguments.get(stringify!($name)).unwrap().value.clone();
 
-            //                 // Downcast value to the correct type
-            //                 match value.downcast::<$cast>() {
-            //                     Ok(value) => *value,
-            //                     Err(_) => return Err(format!("Invalid value for argument {}", stringify!($name)).into()) 
-            //                 }
-            //             },
-            //         )*
-            //     };
+                        let value: $cast = match value {
+                            ArgumentType::$name(v) => v,
+                            _ => match &default {
+                                ArgumentType::$name(v) => v.clone(),
+                                _ => return Err(format!("Missing required argument").into())
+                            }
+                        };
 
-            //     Ok(result)
-            // }
+                        value
+                    },
+                    )*
+                };
 
-            // pub fn parse() -> Result<Self, Box<dyn Error>> {
-            //     let args: Vec<String> = std::env::args().collect();
-            //     Self::parse_custom(args)
-            // }
+                Ok(result)
+            }
+
+            pub fn parse() -> Result<Self, Box<dyn Error>> {
+                let args: Vec<String> = std::env::args().collect();
+                Self::parse_custom(args)
+            }
         }
     };
 }
