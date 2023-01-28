@@ -28,7 +28,7 @@ macro_rules! config_setup {
                 $(
                     $(#[$internal_attr:meta])*
                     $internal_name:ident: $internal_cast:ty = $internal_value:expr;
-                )+
+                )*
             }
         )?
 
