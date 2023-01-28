@@ -3,10 +3,10 @@ name = "argument-handler"
 version = "0.1.0"
 edition = "2021"
 authors = ["Zoe <zoe@zyoh.ca>"]
-description = "A simple command line argument handler for Rust."
+description = "A command line argument handler for Rust."
 # TODO
 license = ""
-homepage = ""
+homepage = "https://github.com/Zyoh/Rust-Argument-Handler"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

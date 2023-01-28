@@ -20,7 +20,7 @@ mod tests {
         output_file: Optional<PathBuf>; ["output"; 1] "Saves to this file. Defaults to `out.txt` in the input file's parent directory."
         verbose: bool; ["-V", "--verbose"] "Enables verbose logging."
         help: bool; ["-h", "--help"] "Shows this help message."
-        template: Optional<String> = "default_template_string" ; ["-t", "--template"] "The template to use."
+        template: Optional<String> = "default_template_string"; ["-t", "--template"] "The template to use."
     }
 
     #[test]
