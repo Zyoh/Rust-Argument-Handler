@@ -1,5 +1,5 @@
 [package]
-name = "argument-handler"
+name = "argument_handler"
 version = "0.1.0"
 edition = "2021"
 authors = ["Zoe <zoe@zyoh.ca>"]
