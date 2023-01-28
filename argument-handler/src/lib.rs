@@ -47,7 +47,8 @@ macro_rules! config_setup {
             pub enum SplitAt {
                 Any,
                 Space,
-                None
+                None,
+                Custom(Vec<char>),
             }
 
             impl SplitAt {
@@ -56,7 +57,15 @@ macro_rules! config_setup {
                     match self {
                         SplitAt::Any => true,
                         SplitAt::Space => character == ' ',
-                        SplitAt::None => false
+                        SplitAt::None => false,
+                        SplitAt::Custom(chars) => {
+                            for c in chars {
+                                if *c == character {
+                                    return true;
+                                }
+                            }
+                            false
+                        }
                     }
                 }
             }
@@ -194,18 +203,18 @@ macro_rules! config_setup {
                         let position: Option<usize> = None;
                         $( let position = Some($cli_position); )*
 
-                        let optional = stringify!($cast).starts_with("Optional");
-
                         let field_name = stringify!($name).to_string();
 
                         // Default value
                         let default: Option<String> = None;
                         $( let default = Some($default.to_string()); )*
 
-                        let actual_default = match default {
+                        let actual_default = match &default {
                             Some(default) => ArgumentType::$name(<$cast>::from_str(&default)?),
                             None => ArgumentType::None
                         };
+
+                        let optional = stringify!($cast).starts_with("Optional") || default.is_some();
 
                         let argument = Argument::<ArgumentType> {
                             field_name,
@@ -222,43 +231,69 @@ macro_rules! config_setup {
                     return Ok(result);
                 }
 
-                pub fn show_help(options: Option<HelpOptions>) -> Result<(), Box<dyn Error>> {    
-                    let options = options.unwrap_or(HelpOptions::default());
+                fn sort_arguments_vector(arguments_vector: &mut Vec<(&String, &Argument<ArgumentType>)>) {
+                    arguments_vector.sort_by(|(n, v), (n2, v2)| {
+                        let pos = v.position.unwrap_or(usize::MAX);
+                        let pos2 = v2.position.unwrap_or(usize::MAX);
 
+                        let opt = v.optional;
+                        let opt2 = v2.optional;
+
+                        let optional = if opt { "1" } else { "0" };
+                        let optional2 = if opt2 { "1" } else { "0" };
+
+                        format!("{}{}{}", optional, pos, n).cmp(
+                            &format!("{}{}{}", optional2, pos2, n2)
+                        )
+                    });
+                }
+
+                pub fn show_help(options: Option<HelpOptions>) -> Result<(), Box<dyn Error>> {
+                    let help_message = Self::help(options)?;
+                    println!("{}", help_message);
+                    Ok(())
+                }
+
+                pub fn help(options: Option<HelpOptions>) -> Result<String, Box<dyn Error>> {
+                    let mut help_message = String::new();
+
+                    let options = options.unwrap_or(HelpOptions::default());
                     let arguments = Self::get_arguments()?;
                     let longest_name: usize = arguments.values().into_iter().map(
                         |s| {
                             s.pretty_name().len()
                         }).max().unwrap_or(0);
         
-                    print!("Usage: {}", $executable_name);
-                    
-                    // TODO: Add argument values to usage
-                    for argument in arguments.values().into_iter() {
-                        if argument.optional {
-                            print!(" [{}]", argument.pretty_name());
-                        } else {
-                            print!(" <{}>", argument.pretty_name());
-                        }
-                    }
-
-                    print!("\n");
-
-                    let description_offset_no_name = options.indent_length + longest_name + options.description_offset;
+                    help_message.push_str(
+                        format!("Usage: {}\n", $executable_name).as_str()
+                    );
 
                     // Sort arguments by position
                     let mut arguments_vector: Vec<(&String, &Argument<ArgumentType>)> = arguments.iter().collect();
-                    arguments_vector.sort_by(|(_, v), (_, v2)| {
-                        let pos = v.position.unwrap_or(usize::MAX);
-                        let pos2 = v2.position.unwrap_or(usize::MAX);
-                        pos.cmp(&pos2)
-                    });
+                    Self::sort_arguments_vector(&mut arguments_vector);
+                    
+                    // TODO: Add argument values to usage
+                    for (_, argument) in &arguments_vector {
+                        help_message.push_str(
+                            if argument.optional {
+                                format!(" [{}]", argument.pretty_name())
+                            } else {
+                                format!(" <{}>", argument.pretty_name())
+                            }.as_str()
+                        );
+                    }
+                    help_message.push_str("\n\n");
+
+                    let description_offset_no_name = options.indent_length + longest_name + options.description_offset;
+
                     for (field_name, argument) in arguments_vector {
-                        print!("{}{:<width$}", 
-                            String::from(" ").repeat(options.indent_length), 
-                            argument.pretty_name(), 
-                            width = (longest_name + options.description_offset
-                            ));
+                        help_message.push_str(
+                            format!("{}{:<width$}", 
+                                String::from(" ").repeat(options.indent_length), 
+                                argument.pretty_name(), 
+                                width = (longest_name + options.description_offset
+                            )
+                        ).as_str());
         
                         // Split the description into multiple lines if it's too long
                         let mut desc_split: Vec<String> = Vec::new();
@@ -279,18 +314,23 @@ macro_rules! config_setup {
         
                         // Print description parts
                         let mut desc_split_iter = desc_split.iter();
-                        if let Some(d1) = desc_split_iter.nth(0) {
-                            print!("{}\n", d1);
-                        } else {
-                            print!("\n");
-                        }
+                        help_message.push_str(
+                            if let Some(d1) = desc_split_iter.nth(0) {
+                                format!("{}\n", d1)
+                            } else {
+                                format!("\n")
+                            }.as_str()
+                        );
+                        
                         for d in desc_split_iter.into_iter() {
                             let padding = String::from(" ").repeat((description_offset_no_name - 1) + options.description_newline_extra_padding);
-                            print!("{}{}\n", padding, d);
+                            help_message.push_str(
+                                format!("{}{}\n", padding, d).as_str()
+                            );
                         }
                     }
 
-                    Ok(())
+                    Ok(help_message)
                 }
                 
                 fn cast_value<T: FromStr>(value: &str) -> Result<T, Box<dyn Error>> {
