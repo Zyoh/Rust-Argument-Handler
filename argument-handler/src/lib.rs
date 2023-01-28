@@ -61,6 +61,15 @@ pub enum Optional<T> where T: FromStr + Default {
     None
 }
 
+impl<T> Optional<T> where T: FromStr + Default + Clone {
+    pub fn to_option(&self) -> Option<T> {
+        match self {
+            Optional::Some(value) => Some(value.clone()),
+            Optional::None => None
+        }
+    }
+}
+
 impl<T> FromStr for Optional<T> where T: FromStr + Default {
     type Err = Box<dyn Error>;
 
@@ -81,8 +90,8 @@ impl<T> FromStr for Optional<T> where T: FromStr + Default {
 
 impl<T> Default for Optional<T> where T: FromStr + Default {
     fn default() -> Self {
-        let object: Optional<T> = Optional::Some(T::default());
-
+        // let object: Optional<T> = Optional::Some(T::default());
+        let object = Self::None;
         object
     }
 }
@@ -332,25 +341,21 @@ macro_rules! config_setup {
                             )?
                         }
 
+                        // --------------------
+
+                        let mut result: $cast = <$cast>::default();
+
                         // Default from setup
-                        let mut default: ArgumentType = setup_arg.value.clone();
-                        
-                        // If setup doesn't provide a default, use the default value for the type
-                        if let ArgumentType::None = default {
-                            if setup_arg.optional{
-                                default = ArgumentType::$name(<$cast>::default());
-                            }
+                        let default: ArgumentType = setup_arg.value.clone();
+                        if let ArgumentType::$name(v) = default {
+                            result = v;
                         }
 
-                        let value: $cast = match value {
-                            ArgumentType::$name(v) => v,
-                            _ => match &default {
-                                ArgumentType::$name(v) => v.clone(),
-                                _ => return Err(format!("Missing required argument `{}`", stringify!($name)).into())
-                            }
-                        };
+                        if let ArgumentType::$name(v) = value {
+                            result = v;
+                        }
 
-                        value
+                        result
                     },
                     )*
                 };

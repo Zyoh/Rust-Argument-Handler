@@ -55,7 +55,13 @@ mod tests {
         ];
         let args: Vec<String> = args.iter_mut().map(|arg| arg.to_string()).collect();
 
-        let config = Config::parse_custom(args);
+        let config = Config::parse_custom(args).unwrap();
         println!("{:#?}", config);
+
+        assert_eq!(config.input_file, PathBuf::from("/dev/null/input_file"));
+        assert_eq!(config.output_file.to_option(), None);
+        assert_eq!(config.verbose, true);
+        assert_eq!(config.help, true);
+        assert_eq!(config.template.to_option(), Some("default_template_string".to_string()));
     }
 }
